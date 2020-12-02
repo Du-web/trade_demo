@@ -5,9 +5,10 @@
 '''
 
 import MySQLdb
-from django.http import HttpResponse
+from django.db import transaction
+from django.http import HttpResponse, JsonResponse
 
-from payment.models import Trade
+from payment.models import Trade, Accout
 
 conn = MySQLdb.connect(
     host='localhost',    # mysql所在主机的ip
@@ -49,3 +50,51 @@ def get_trade_info(request):
     user_id3 = trades[2].user_id
     trade_amount3 = trades[2].trade_amount
     return HttpResponse(f'交易额最大的前三名的用户id是{user_id1}、{user_id2}、{user_id3},交易额是{trade_amount1}、{trade_amount2}、{trade_amount3}')
+
+
+'''
+3. 假设我们要从账户A中往账户B转账300元， 在service.py中完成 转账函数
+   转账涉及两张表，一张是账户表，一张是交易表，账户表里需要完成用户余额的增或减
+   此例中，账户表中账户A余额需要减去300，账户B需要加上300
+   交易表里需插入交易记录，如用户A在某时间交易300元，交易表里无需记录转给谁
+   因为转账涉及钱的操作，所以需要考虑实现转账应该注意哪些点，同时在代码中体现出来
+'''
+
+
+def transfer(request):
+    '''
+
+    :param request:
+    money: 转账金额
+    account_A: 转出的账户
+    account_B: 转出的账户
+    '''
+    money = request.GET['money']
+    card_A = request.GET['accout_A']
+    card_B = request.GET['accout_B']
+    account_A = Accout.objects.get(account_num=card_A)
+    account_B = Accout.objects.get(account_num=card_B)
+    trade_A = Trade.objects.get(accout=account_A.id)
+    trade_B = Trade.objects.get(accout=account_B.id)
+    #   判断转出账户的余额是否足够转账
+    if account_A.balance < money:
+        return JsonResponse({'message': f'余额不足，当前余额是{account_A.balance}元', 'status': 0})
+    try:
+        #   事务
+        with transaction.atomic():
+            account_A.balance -= money
+            account_B.balance += money
+            trade_A.trade_amount = money
+            trade_A.status = 1
+            trade_B.trade_amount = money
+            trade_B.status = 1
+            trade_A.save()
+            trade_B.save()
+            account_A.save()
+            account_B.save()
+        return JsonResponse({'message': f'转账成功，本次交易额{money}元', 'status': 1})
+    except:
+        return JsonResponse({'message': '交易失败', 'status': 0})
+
+
+
